@@ -6,7 +6,7 @@
             [mire.rooms :as rooms]))
 
 (defn- cleanup []
-  "Drop all inventory and remove player from room and player list."
+  "Выбросить весь инвентарь и удалить игрока из комнаты и списка игроков."
   (dosync
    (doseq [item @player/*inventory*]
      (commands/discard item))
@@ -17,28 +17,28 @@
 (defn- get-unique-player-name [name]
   (flush)
   (if (@player/streams name)
-    (do (print "That name is in use; try again: ")
+    (do (print "Это имя уже занято; попробуй другое: ")
         (flush)
         (recur (read-line)))
      name))
 
 (defn- get-strength [strength]
-  (if (>(+ (Integer/parseInt strength) player/*intelligence* player/*perception*) 10)
-    (do (print "\nSum of stats > 10. Input a lower number: ")
+  (if (> (+ (Integer/parseInt strength) player/*intelligence* player/*perception*) 10)
+    (do (print "\nСумма характеристик больше 10. Введи меньшее число: ")
       (flush)
       (recur (read-line)))
     strength)) ;;ueeee
 
 (defn- get-intelligence [intelligence]
-  (if (>(+ (Integer/parseInt intelligence) player/*strength* player/*perception*) 10)
-    (do (print "\nSum of stats > 10. Input a lower number or 0: ")
+  (if (> (+ (Integer/parseInt intelligence) player/*strength* player/*perception*) 10)
+    (do (print "\nСумма характеристик больше 10. Введи меньшее число или 0: ")
       (flush)
       (recur (read-line)))
     intelligence)) ;;ueeeee
 
 (defn- get-perception [perception]
-  (if (>(+ (Integer/parseInt perception) player/*intelligence* player/*strength*) 10)
-    (do (print "\nSum of stats > 10. Input a lower number or 0: ")
+  (if (> (+ (Integer/parseInt perception) player/*intelligence* player/*strength*) 10)
+    (do (print "\nСумма характеристик больше 10. Введи меньшее число или 0: ")
       (flush)
       (recur (read-line)))
     perception)) ;;ueeeeeeee
@@ -48,6 +48,7 @@
     (subs string 20)
     string
   ))
+
 (defn- mire-handle-client [in out]
   (binding [*in* (io/reader in)
             *out* (io/writer out)
@@ -58,7 +59,7 @@
 
     ;; We have to nest this in another binding call instead of using
     ;; the one above so *in* and *out* will be bound to the socket
-    (print "\nWhat is your name? (Press Enter, then input your name and press Enter)")
+    (print "\nКак тебя зовут? (Нажми Enter, затем введи имя и снова нажми Enter)")
     (flush)
     (read-line) ;Ебанный костыль
     (binding [player/*name* (get-unique-player-name (read-line))
@@ -68,23 +69,23 @@
        (commute (:inhabitants @player/*current-room*) conj player/*name*)
        (commute player/streams assoc player/*name* *out*))
 
-      (print "Write the description about you: ") (flush)
+      (print "Напиши описание о себе: ") (flush)
       (binding [player/*description* (read-line)])
-      (print "\nWhat is your strength? Input number from 0 to 10: ") (flush)
+      (print "\nЧему равна твоя сила? Введи число от 0 до 10: ") (flush)
       (binding [player/*strength* (Integer/parseInt (try (get-strength (read-line))
                                                       (catch Exception e
                                                       (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                      "Input can only be an integer in range [1,10]")))] ;;ueeee
-        (print "\nWhat is your intelligence? Input number from 0 to 10: ") (flush)
+                                                      "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeee
+        (print "\nЧему равен твой интеллект? Введи число от 0 до 10: ") (flush)
         (binding [player/*intelligence* (Integer/parseInt (try (get-intelligence (read-line))
                                                           (catch Exception e
                                                           (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                          "Input can only be an integer in range [1,10]")))] ;;ueeee
-          (print "\nWhat is your perception? Input number from 0 to 10: ") (flush)
+                                                          "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeee
+          (print "\nЧему равно твоё восприятие? Введи число от 0 до 10: ") (flush)
           (binding [player/*perception* (Integer/parseInt (try (get-perception (read-line))
                                                           (catch Exception e
                                                           (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                          "Input can only be an integer in range [1,10]")))] ;;ueeeeeee
+                                                          "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeeeeee
 
       (println (commands/look)) (print player/prompt) (flush)
 
@@ -100,6 +101,6 @@
   ([port dir]
      (rooms/add-rooms dir)
      (defonce server (socket/create-server (Integer. port) mire-handle-client))
-     (println "Launching Mire server on port" port))
+     (println "Запуск сервера Mire на порту" port))
   ([port] (-main port "resources/rooms"))
   ([] (-main 3333)))

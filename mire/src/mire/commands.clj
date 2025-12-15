@@ -4,37 +4,37 @@
             [mire.player :as player]))
 
 (defn- move-between-refs
-  "Move one instance of obj between from and to. Must call in a transaction."
+  "Вспомогательная функция для безопасного перемещения объектов между рефами"
   [obj from to]
   (alter from disj obj)
   (alter to conj obj))
 
-;; Command functions
+;; Функции команд
 
 (defn stats
-  "See your stats"
+  "Показывает текущие характеристики игрока: силу, интеллект и восприятие."
   []
-  (str "\nStrength: " player/*strength*
-  (str "\nIntelligence: " player/*intelligence*
-  (str "\nPerception: " player/*perception*)))) ;;ueeeeeeee
+  (str "\nСила: " player/*strength*
+       "\nИнтеллект: " player/*intelligence*
+       "\nВосприятие: " player/*perception*))
 
 (defn look
-  "Get a description of the surrounding environs and its contents, including player names."
+  "Выводит описание текущей комнаты, доступные выходы, предметы и других игроков в комнате."
   []
   (let [current-room @player/*current-room*
         room-desc (:desc current-room)
         exits (keys @(:exits current-room))
-        items (map #(str "There is " % " here.\n") @(:items current-room))
+        items (map #(str "Здесь лежит: " % ".") @(:items current-room))
         inhabitants @(:inhabitants current-room)
         players-in-room (filter #(contains? inhabitants %) (keys @player/streams))]
-        (str room-desc
-         "\nExits: " exits "\n"
+    (str room-desc
+         "\nВыходы: " (str/join ", " exits) "\n"
          (str/join "\n" items)
-         (when-not (empty? players-in-room)
-           (str "\nPlayers here: " (str/join ", " players-in-room))))))
+         (when (seq players-in-room)
+           (str "\nИгроки здесь: " (str/join ", " players-in-room))))))
 
 (defn move
-  "\"♬ We gotta get out of this place... ♪\" Give a direction."
+  "Перемещает игрока в указанном направлении, если выход существует."
   [direction]
   (dosync
    (let [target-name ((:exits @player/*current-room*) (keyword direction))
@@ -46,111 +46,160 @@
                             (:inhabitants target))
          (ref-set player/*current-room* target)
          (look))
-       "You can't go that way."))))
+       "Ты не можешь пойти в ту сторону."))))
 
 (defn grab
-  "Pick something up."
+  "Подбирает указанный предмет из текущей комнаты и помещает его в инвентарь игрока."
   [thing]
   (dosync
    (if (rooms/room-contains? @player/*current-room* thing)
-     (do (move-between-refs (keyword thing)
-                            (:items @player/*current-room*)
-                            player/*inventory*)
-         (str "You picked up the " thing "."))
-     (str "There isn't any " thing " here."))))
+     (do
+       (move-between-refs (keyword thing)
+                          (:items @player/*current-room*)
+                          player/*inventory*)
+       (str "Ты подобрал(а) " thing "."))
+     (str "Здесь нет предмета '" thing "'."))))
 
 (defn discard
-  "Put something down that you're carrying."
+  "Выбрасывает указанный предмет из инвентаря игрока и кладёт его в текущую комнату."
   [thing]
   (dosync
    (if (player/carrying? thing)
-     (do (move-between-refs (keyword thing)
-                            player/*inventory*
-                            (:items @player/*current-room*))
-         (str "You dropped the " thing "."))
-     (str "You're not carrying a " thing "."))))
+     (do
+       (move-between-refs (keyword thing)
+                          player/*inventory*
+                          (:items @player/*current-room*))
+       (str "Ты выбросил(а) " thing "."))
+     (str "У тебя нет предмета '" thing "'."))))
 
 (defn inventory
-  "See what you've got."
+  "Показывает содержимое инвентаря игрока."
   []
-  (str "You are carrying:\n"
-       (str/join "\n" (seq @player/*inventory*))))
+  (let [items @player/*inventory*]
+    (if (seq items)
+      (str "У тебя в инвентаре:\n" (str/join "\n" items))
+      "Инвентарь пуст.")))
 
 (defn detect
-  "If you have the detector, you can see which room an item is in."
+  "Если у тебя есть детектор, ты можешь узнать, в какой комнате находится предмет."
   [item]
   (if (@player/*inventory* :detector)
-    (if-let [room (first (filter #((:items %) (keyword item))
+    (if-let [room (first (filter #(contains? @(:items %) (keyword item))
                                  (vals @rooms/rooms)))]
-      (str item " is in " (:name room))
-      (str item " is not in any room."))
-    "You need to be carrying the detector for that."))
+      (str "Предмет '" item "' находится в комнате: " (:name room))
+      (str "Предмет '" item "' нигде не найден."))
+    "Тебе нужно носить детектор, чтобы это делать."))
 
 (defn say
-  "Say something out loud so everyone in the room can hear."
+  "Сказать что-то вслух, чтобы все в комнате услышали."
   [& words]
   (let [message (str/join " " words)]
     (doseq [inhabitant (disj @(:inhabitants @player/*current-room*) player/*name*)]
-      (binding [*out* (player/streams inhabitant)]
-        (println (str player/*name* ":") message)
-        (println player/prompt)))
-    (str "You said " message)))
-
-(defn yell
-  "Say something out loud so everyone in the dungeon can hear."
-  [& words]
-  (let [message (str/join " " words)]
-    (doseq [inhabitant @player/streams]
-      (if (false? (= (first inhabitant) player/*name*))
-        (binding [*out* (player/streams (first inhabitant))]
+      (when-let [out (get @player/streams inhabitant)]
+        (binding [*out* out]
           (println (str player/*name* ":") message)
           (println player/prompt))))
-    (str "You yelled " message)))
+    (str "Ты сказал(а): " message)))
 
-(defn whisper
-  "Say something very quiet so only target person in the room can hear."
+(defn yell
+  "Крикнуть что-то, чтобы услышали все игроки в подземелье."
   [& words]
-  (let [player-target (str (first words)) message (str/join " " (rest words))]
-    (doseq [inhabitant (disj @(:inhabitants @player/*current-room*) player/*name*)]
-      (let [inhabitant-name inhabitant] ;(subs inhabitant 1 (count inhabitant))
-        (if (true? (= player-target inhabitant-name))
-          (binding [*out* (player/streams inhabitant)]
-            (println (str player/*name* "->" player-target ":") message)
+  (let [message (str/join " " words)]
+    (doseq [name (keys @player/streams)]
+      (when (not= name player/*name*)
+        (when-let [out (get @player/streams name)]
+          (binding [*out* out]
+            (println (str player/*name* ":") message)
             (println player/prompt)))))
-    (str "You whispered to " player-target " " message)))
+    (str "Ты закричал(а): " message)))
+(defn kill
+  "Убивает указанного игрока, если он находится в той же комнате."  [target-name]
+  (dosync
+    (let [current-room @player/*current-room*
+          room-inhabitants @(:inhabitants current-room)
+          all-streams @player/streams]
+      (cond
+        (= target-name player/*name*)
+        "Ты не можешь убить самого себя!"
+
+        (and (contains? room-inhabitants target-name)
+             (contains? (set (keys all-streams)) target-name))
+        (do
+          ;; Убираем жертву из комнаты
+          (alter (:inhabitants current-room) disj target-name)
+
+          ;; Уведомляем других игроков в комнате (кроме убийцы и жертвы)
+          (doseq [inhabitant (disj room-inhabitants player/*name* target-name)]
+            (when-let [out (get all-streams inhabitant)]
+              (binding [*out* out]
+                (println (str player/*name* " УБИЛ(А) " target-name "!!!"))
+                (println player/prompt))))
+
+          ;; Сообщаем жертве
+          (when-let [victim-out (get all-streams target-name)]
+            (binding [*out* victim-out]
+              (println "*** ТЕБЯ УБИЛИ! ***")
+              (println "Ты погиб(ла) и больше не можешь действовать.")))
+
+          (str "Ты убил(а) " target-name "!"))
+
+        :else
+        "Этого игрока нет рядом с тобой."))))
+(defn whisper
+  "Прошептать что-то очень тихо, чтобы услышал только указанный игрок в комнате."
+  [& words]
+  (if (empty? words)
+    "Прошепчи что-то кому-то!"
+    (let [target (first words)
+          message (str/join " " (rest words))
+          room-inhabitants @(:inhabitants @player/*current-room*)]
+      (if (and (not= target player/*name*)
+               (contains? room-inhabitants target)
+               (contains? (keys @player/streams) target))
+        (do
+          (when-let [out (get @player/streams target)]
+            (binding [*out* out]
+              (println (str player/*name* "->" target ":") message)
+              (println player/prompt)))
+          (str "Ты прошептал(а) " target ": " message))
+        "Этого игрока здесь нет или он не существует."))))
 
 (defn help
-  "Show available commands and what they do."
+  "Показывает список доступных команд и их описание."
   []
   (str/join "\n" (map #(str (key %) ": " (:doc (meta (val %))))
                       (dissoc (ns-publics 'mire.commands)
                               'execute 'commands))))
 
-;; Command data
+;; Словарь команд
 
 (def commands {"move" move,
-               "north" (fn [] (move :north)),
-               "south" (fn [] (move :south)),
-               "east" (fn [] (move :east)),
-               "west" (fn [] (move :west)),
-               "grab" grab
-               "discard" discard
-               "inventory" inventory
-               "detect" detect
-               "look" look
-               "say" say
-               "stats" stats
-               "yell" yell
-               "help" help
-               "whisper" whisper})
+               "north" #(move "north"),
+               "south" #(move "south"),
+               "east" #(move "east"),
+               "west" #(move "west"),
+               "grab" grab,
+               "discard" discard,
+               "inventory" inventory,
+               "detect" detect,
+               "look" look,
+               "say" say,
+               "stats" stats,
+               "yell" yell,
+               "help" help,
+               "whisper" whisper,
+               "kill" kill})
 
-;; Command handling
+;; Обработка команд
 
 (defn execute
-  "Execute a command that is passed to us."
+  "Выполняет команду, переданную в виде строки (например, из сетевого ввода)."
   [input]
-  (try (let [[command & args] (.split input " +")]
-         (apply (commands command) args))
-       (catch Exception e
-         (.printStackTrace e (new java.io.PrintWriter *err*))
-         "You can't do that!")))
+  (try
+    (let [[command & args] (str/split (str/trim input) #"\s+")]
+      (if-let [cmd (commands command)]
+        (apply cmd args)
+        "Неизвестная команда. Напиши 'help', чтобы увидеть список команд."))
+    (catch Exception e
+      (.printStackTrace e *err*)
+      "Ты не можешь этого сделать!")))
