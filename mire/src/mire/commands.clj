@@ -9,6 +9,13 @@
   (alter from disj obj)
   (alter to conj obj))
 
+(defn- send-message-to-player [player-name message]
+  "Отправляет сообщение игроку через его output stream"
+  (when-let [out (get @player/streams player-name)]
+    (binding [*out* out]
+      (println message)
+      (println player/prompt))))
+
 ;; Функции команд
 
 (defn stats
@@ -95,10 +102,7 @@
   [& words]
   (let [message (str/join " " words)]
     (doseq [inhabitant (disj @(:inhabitants @player/*current-room*) player/*name*)]
-      (when-let [out (get @player/streams inhabitant)]
-        (binding [*out* out]
-          (println (str player/*name* ":") message)
-          (println player/prompt))))
+      (send-message-to-player inhabitant (str player/*name* ": " message)))
     (str "Ты сказал(а): " message)))
 
 (defn yell
@@ -107,13 +111,12 @@
   (let [message (str/join " " words)]
     (doseq [name (keys @player/streams)]
       (when (not= name player/*name*)
-        (when-let [out (get @player/streams name)]
-          (binding [*out* out]
-            (println (str player/*name* ":") message)
-            (println player/prompt)))))
+        (send-message-to-player name (str player/*name* ": " message))))
     (str "Ты закричал(а): " message)))
+
 (defn kill
-  "Убивает указанного игрока, если он находится в той же комнате."  [target-name]
+  "Убить другого игрока в той же комнате."
+  [target-name]
   (dosync
     (let [current-room @player/*current-room*
           room-inhabitants @(:inhabitants current-room)
@@ -128,23 +131,102 @@
           ;; Убираем жертву из комнаты
           (alter (:inhabitants current-room) disj target-name)
 
-          ;; Уведомляем других игроков в комнате (кроме убийцы и жертвы)
-          (doseq [inhabitant (disj room-inhabitants player/*name* target-name)]
-            (when-let [out (get all-streams inhabitant)]
-              (binding [*out* out]
-                (println (str player/*name* " УБИЛ(А) " target-name "!!!"))
-                (println player/prompt))))
+          ;; Получаем список свидетелей
+          (let [witnesses (disj room-inhabitants player/*name* target-name)]
 
-          ;; Сообщаем жертве
-          (when-let [victim-out (get all-streams target-name)]
-            (binding [*out* victim-out]
-              (println "*** ТЕБЯ УБИЛИ! ***")
-              (println "Ты погиб(ла) и больше не можешь действовать.")))
+            ;; Отправляем сообщения
+            ;; Сообщение жертве
+            (send-message-to-player target-name
+                                   "*** ТЕБЯ УБИЛИ! ***\nТы погиб(ла) и больше не можешь действовать.")
 
-          (str "Ты убил(а) " target-name "!"))
+            ;; Сообщения свидетелям
+            (doseq [witness witnesses]
+              (send-message-to-player witness
+                                     (str player/*name* " УБИЛ(А) " target-name "!!!"))))
+
+          ;; НЕ возвращаем сообщение для убийцы - оно будет отправлено отдельно
+          nil)
 
         :else
         "Этого игрока нет рядом с тобой."))))
+
+(defn resurrect
+  "Воскресить другого игрока. Нужно находиться в той же комнате с телом."
+  [target-name]
+  (dosync
+    (let [current-room @player/*current-room*
+          room-inhabitants @(:inhabitants current-room)
+          all-streams @player/streams]
+      (cond
+        (= target-name player/*name*)
+        "Ты не можешь воскресить самого себя!"
+
+        ;; Проверяем, что игрок существует, но НЕ находится в комнате (умер)
+        (and (contains? (set (keys all-streams)) target-name)
+             (not (contains? room-inhabitants target-name)))
+        (do
+          ;; Добавляем игрока обратно в комнату
+          (alter (:inhabitants current-room) conj target-name)
+
+          ;; Получаем список игроков в комнате (кроме воскрешающего и воскрешенного)
+          (let [other-players (disj room-inhabitants player/*name*)]
+
+            ;; Отправляем сообщения
+            ;; Сообщение воскрешенному игроку
+            (send-message-to-player target-name
+                                   (str "*** ТЕБЯ ВОСКРЕСИЛИ! ***\n" player/*name* " воскресил(а) тебя. Теперь ты снова в игре!"))
+
+            ;; Сообщения другим игрокам в комнате
+            (doseq [other other-players]
+              (send-message-to-player other
+                                     (str player/*name* " ВОСКРЕСИЛ(А) " target-name "!!!")))
+
+            ;; Возвращаем сообщение для воскресителя
+            (str "Ты воскресил(а) " target-name "! Теперь он(а) снова в игре!")))
+
+        ;; Если игрок уже жив и находится в комнате
+        (contains? room-inhabitants target-name)
+        (str target-name " уже жив(а) и находится здесь!")
+
+        ;; Если игрок не существует в игре
+        :else
+        "Такого игрока нет в игре или он уже воскрешён в другой комнате."))))
+
+(defn heal
+  "Исцелить другого игрока. Нужно находиться в той же комнате."
+  [target-name]
+  (dosync
+    (let [current-room @player/*current-room*
+          room-inhabitants @(:inhabitants current-room)
+          all-streams @player/streams]
+      (cond
+        (= target-name player/*name*)
+        "Ты не можешь исцелить самого себя!"
+
+        ;; Проверяем, что игрок находится в комнате и жив
+        (and (contains? room-inhabitants target-name)
+             (contains? (set (keys all-streams)) target-name))
+        (do
+          ;; Получаем список игроков в комнате (кроме целителя и цели)
+          (let [other-players (disj room-inhabitants player/*name* target-name)]
+
+            ;; Отправляем сообщения
+            ;; Сообщение исцеленному игроку
+            (send-message-to-player target-name
+                                   (str "*** ТЕБЯ ИСЦЕЛИЛИ! ***\n" player/*name* " исцелил(а) тебя. Ты чувствуешь себя лучше!"))
+
+            ;; Сообщения другим игрокам в комнате
+            (doseq [other other-players]
+              (send-message-to-player other
+                                     (str player/*name* " ИСЦЕЛИЛ(А) " target-name "!")))
+
+            ;; Возвращаем сообщение для целителя
+            (str "Ты исцелил(а) " target-name "! Он(а) чувствует себя лучше!")))
+
+        ;; Если игрок не в комнате или не существует
+        :else
+        "Этого игрока нет рядом с тобой или он(а) не в игре."))))
+
 (defn whisper
   "Прошептать что-то очень тихо, чтобы услышал только указанный игрок в комнате."
   [& words]
@@ -157,10 +239,7 @@
                (contains? room-inhabitants target)
                (contains? (keys @player/streams) target))
         (do
-          (when-let [out (get @player/streams target)]
-            (binding [*out* out]
-              (println (str player/*name* "->" target ":") message)
-              (println player/prompt)))
+          (send-message-to-player target (str player/*name* "->" target ": " message))
           (str "Ты прошептал(а) " target ": " message))
         "Этого игрока здесь нет или он не существует."))))
 
@@ -188,7 +267,9 @@
                "yell" yell,
                "help" help,
                "whisper" whisper,
-               "kill" kill})
+               "kill" kill
+               "resurrect" resurrect,
+               "heal" heal})
 
 ;; Обработка команд
 
@@ -198,7 +279,14 @@
   (try
     (let [[command & args] (str/split (str/trim input) #"\s+")]
       (if-let [cmd (commands command)]
-        (apply cmd args)
+        (let [result (apply cmd args)]
+          ;; Особый случай для команды kill - нужно отправить сообщение убийце
+          (when (= command "kill")
+            (when (and (not (string? result)) (nil? result))
+              ;; Если kill вернул nil (успешное убийство), отправляем сообщение убийце
+              (send-message-to-player player/*name*
+                                     (str "Ты убил(а) " (first args) "!"))))
+          result)
         "Неизвестная команда. Напиши 'help', чтобы увидеть список команд."))
     (catch Exception e
       (.printStackTrace e *err*)
