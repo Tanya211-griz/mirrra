@@ -97,6 +97,16 @@ random_move_command(Cmd) :-
     ;   Dir = 4 -> Cmd = west
     ).
 
+random_say_command(Cmd) :-
+    random(1, 7, Phrase),
+    (   Phrase = 1 -> Cmd = 'say Hello everyone!'
+    ;   Phrase = 2 -> Cmd = 'say I am here!'
+    ;   Phrase = 3 -> Cmd = 'say Who wants to fight?'
+    ;   Phrase = 4 -> Cmd = 'say I am bored...'
+    ;   Phrase = 5 -> Cmd = 'say Let us play!'
+    ;   Phrase = 6 -> Cmd = 'say Bot is online'
+    ).
+
 
 parse_players(Response, Players) :-
     split_string(Response, "\n", "", Lines),
@@ -119,5 +129,6 @@ read_response(Stream, Response) :-
     ).
 
 known_players(["player1", "player2", "qqq", "rrr", "yyy", "Andrey", "Vlad"]).
+
 
 
