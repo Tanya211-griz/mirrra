@@ -27,31 +27,31 @@
     (do (print "\nСумма характеристик больше 10. Введи меньшее число: ")
       (flush)
       (recur (read-line)))
-    strength)) ;;ueeee
+    strength))
 
 (defn- get-intelligence [intelligence]
   (if (> (+ (Integer/parseInt intelligence) player/*strength* player/*perception*) 10)
     (do (print "\nСумма характеристик больше 10. Введи меньшее число или 0: ")
       (flush)
       (recur (read-line)))
-    intelligence)) ;;ueeeee
+    intelligence))
 
 (defn- get-perception [perception]
   (if (> (+ (Integer/parseInt perception) player/*intelligence* player/*strength*) 10)
     (do (print "\nСумма характеристик больше 10. Введи меньшее число или 0: ")
       (flush)
       (recur (read-line)))
-    perception)) ;;ueeeeeeee
+    perception))
 
 (defn- filter-crap [string]
   (if (> (count string) 20)
     (subs string 20)
-    string
-  ))
+    string))
 
 (defn- mire-handle-client [in out]
-  (binding [*in* (io/reader in)
-            *out* (io/writer out)
+  ;; КРИТИЧНО: Устанавливаем UTF-8 кодировку для ввода и вывода
+  (binding [*in* (io/reader in :encoding "UTF-8")
+            *out* (io/writer out :encoding "UTF-8")
             *err* (io/writer System/err)
             player/*strength* 0
             player/*intelligence* 0
@@ -75,17 +75,17 @@
       (binding [player/*strength* (Integer/parseInt (try (get-strength (read-line))
                                                       (catch Exception e
                                                       (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                      "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeee
+                                                      "Вводить можно только целое число в диапазоне [1,10]")))]
         (print "\nЧему равен твой интеллект? Введи число от 0 до 10: ") (flush)
         (binding [player/*intelligence* (Integer/parseInt (try (get-intelligence (read-line))
                                                           (catch Exception e
                                                           (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                          "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeee
+                                                          "Вводить можно только целое число в диапазоне [1,10]")))]
           (print "\nЧему равно твоё восприятие? Введи число от 0 до 10: ") (flush)
           (binding [player/*perception* (Integer/parseInt (try (get-perception (read-line))
                                                           (catch Exception e
                                                           (.printStackTrace e (new java.io.PrintWriter *err*))
-                                                          "Вводить можно только целое число в диапазоне [1,10]")))] ;;ueeeeeee
+                                                          "Вводить можно только целое число в диапазоне [1,10]")))]
 
       (println (commands/look)) (print player/prompt) (flush)
 
